@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% block content %}
+<nav class="month-nav">
+  <a class="btn icon" href="{{ url_for('index', month=prev_month) }}" aria-label="Предыдущий месяц">‹</a>
+  <h1>{{ month_title }}</h1>
+  <a class="btn icon" href="{{ url_for('index', month=next_month) }}" aria-label="Следующий месяц">›</a>
+</nav>
+
+<section class="stats">
+  <div class="stat"><span>Доходы</span><b class="pos">{{ income|money }}</b></div>
+  <div class="stat"><span>Расходы</span><b class="neg">{{ expense|money }}</b></div>
+  <div class="stat"><span>Итог за месяц</span><b class="{{ 'pos' if income >= expense else 'neg' }}">{{ (income - expense)|money }}</b></div>
+  <div class="stat"><span>Баланс за всё время</span><b>{{ overall|money }}</b></div>
+</section>
+
+<div class="grid">
+  <section class="card">
+    <h2>Новая операция</h2>
+    <form method="post" action="{{ url_for('add') }}" class="stack">
+      {% with tx = None %}{% include '_tx_form.html' %}{% endwith %}
+      <button class="btn primary">Добавить</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Расходы по категориям</h2>
+    {% if by_cat %}
+      <div class="chart-box"><canvas id="catChart"></canvas></div>
+      <ul class="cat-list">
+        {% for c in by_cat %}
+          <li><span class="dot"></span>{{ c.category }}
+            <b>{{ (c.sum * 100)|money }}</b>
+            <small>{{ (c.sum * 100 * 100 / expense)|round|int }}%</small></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">В этом месяце расходов пока нет.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Лимиты на месяц</h2>
+    {% for b in budgets %}
+      <div class="budget {{ 'over' if b.pct > 100 else ('warn' if b.pct >= 80) }}">
+        <div class="row between">
+          <span>{{ b.category }}</span>
+          <span>{{ b.spent|money }} / {{ b.limit|money }}
+            <form method="post" action="{{ url_for('delete_budget') }}" class="inline">
+              <input type="hidden" name="category" value="{{ b.category }}">
+              <button class="x" title="Убрать лимит">×</button>
+            </form>
+          </span>
+        </div>
+        <div class="bar"><i style="width: {{ [b.pct, 100]|min }}%"></i></div>
+        {% if b.pct > 100 %}<small>Превышение на {{ (b.spent - b.limit)|money }}</small>
+        {% else %}<small>Осталось {{ (b.limit - b.spent)|money }}</small>{% endif %}
+      </div>
+    {% else %}
+      <p class="muted">Задайте лимит, чтобы видеть, сколько ещё можно потратить.</p>
+    {% endfor %}
+    <form method="post" action="{{ url_for('set_budget') }}" class="row budget-form">
+      <input name="category" list="cats-expense" placeholder="Категория" required>
+      <input name="amount" inputmode="decimal" placeholder="Лимит, ₽" required>
+      <button class="btn">Сохранить</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Последние 6 месяцев</h2>
+    <div class="chart-box wide"><canvas id="trendChart"></canvas></div>
+  </section>
+</div>
+
+<section class="card">
+  <div class="row between wrap-row">
+    <h2>Операции</h2>
+    <form method="get" class="row filters">
+      <input type="hidden" name="month" value="{{ month_key }}">
+      <select name="kind" onchange="this.form.submit()">
+        <option value="">Все</option>
+        <option value="income" {{ 'selected' if kind_filter == 'income' }}>Доходы</option>
+        <option value="expense" {{ 'selected' if kind_filter == 'expense' }}>Расходы</option>
+      </select>
+      <select name="category" onchange="this.form.submit()">
+        <option value="">Все категории</option>
+        {% for c in (categories.expense + categories.income)|unique %}
+          <option {{ 'selected' if cat_filter == c }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+  {% if txs %}
+    <table class="tx">
+      <thead><tr><th>Дата</th><th>Категория</th><th>Комментарий</th><th class="num" style="text-align:right">Сумма</th><th></th></tr></thead>
+      <tbody>
+      {% for t in txs %}
+        <tr>
+          <td>{{ t.day[8:10] }}.{{ t.day[5:7] }}</td>
+          <td>{{ t.category }}</td>
+          <td class="muted">{{ t.note }}</td>
+          <td class="num {{ 'pos' if t.kind == 'income' else 'neg' }}">{{ '+' if t.kind == 'income' else '−' }}{{ t.amount|money }}</td>
+          <td class="actions">
+            <a href="{{ url_for('edit', tx_id=t.id) }}" title="Изменить">✎</a>
+            <form method="post" action="{{ url_for('delete', tx_id=t.id) }}" class="inline"
+                  onsubmit="return confirm('Удалить операцию?')">
+              <button class="x" title="Удалить">×</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Операций нет.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  const css = getComputedStyle(document.documentElement);
+  const palette = [...Array(8).keys()].map(i => css.getPropertyValue('--c' + i).trim());
+  const fmt = v => v.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+  Chart.defaults.color = css.getPropertyValue('--muted').trim();
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+  const byCat = {{ by_cat|tojson }};
+  if (byCat.length && document.getElementById('catChart')) {
+    new Chart(document.getElementById('catChart'), {
+      type: 'doughnut',
+      data: {
+        labels: byCat.map(c => c.category),
+        datasets: [{data: byCat.map(c => c.sum), backgroundColor: byCat.map((_, i) => palette[i % 8]),
+                    borderWidth: 2, borderColor: css.getPropertyValue('--card').trim()}]
+      },
+      options: {cutout: '65%', plugins: {legend: {display: false},
+                tooltip: {callbacks: {label: c => ' ' + fmt(c.parsed)}}}}
+    });
+  }
+
+  const trend = {{ trend|tojson }};
+  new Chart(document.getElementById('trendChart'), {
+    type: 'bar',
+    data: {
+      labels: trend.map(t => t.label),
+      datasets: [
+        {label: 'Доходы', data: trend.map(t => t.income), backgroundColor: css.getPropertyValue('--pos').trim(), borderRadius: 4},
+        {label: 'Расходы', data: trend.map(t => t.expense), backgroundColor: css.getPropertyValue('--neg').trim(), borderRadius: 4}
+      ]
+    },
+    options: {maintainAspectRatio: false,
+              scales: {y: {ticks: {callback: fmt}, grid: {color: css.getPropertyValue('--line').trim()}}, x: {grid: {display: false}}},
+              plugins: {tooltip: {callbacks: {label: c => ' ' + c.dataset.label + ': ' + fmt(c.parsed.y)}}}}
+  });
+</script>
+{% endblock %}

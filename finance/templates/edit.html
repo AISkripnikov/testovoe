@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Редактирование — Мои финансы{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h2>Редактировать операцию</h2>
+  <form method="post" class="stack">
+    {% with today = tx.day %}{% include '_tx_form.html' %}{% endwith %}
+    <div class="row">
+      <button class="btn primary">Сохранить</button>
+      <a class="btn" href="{{ url_for('index', month=tx.day[:7]) }}">Отмена</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,30 @@
+{# Общая форма операции. Ожидает: tx (или None), categories, today #}
+{% set kind = tx.kind if tx else 'expense' %}
+<div class="seg" role="radiogroup">
+  <label><input type="radio" name="kind" value="expense" {{ 'checked' if kind == 'expense' }}><span>Расход</span></label>
+  <label><input type="radio" name="kind" value="income" {{ 'checked' if kind == 'income' }}><span>Доход</span></label>
+</div>
+<label class="field">Сумма, ₽
+  <input name="amount" inputmode="decimal" required placeholder="0"
+         value="{{ ('%.2f'|format(tx.amount / 100)).replace('.00', '') if tx else '' }}">
+</label>
+<label class="field">Категория
+  <input name="category" list="cats-{{ kind }}" required autocomplete="off"
+         value="{{ tx.category if tx else '' }}" data-cat-input>
+</label>
+<datalist id="cats-expense">{% for c in categories.expense %}<option value="{{ c }}">{% endfor %}</datalist>
+<datalist id="cats-income">{% for c in categories.income %}<option value="{{ c }}">{% endfor %}</datalist>
+<label class="field">Дата
+  <input type="date" name="day" required value="{{ tx.day if tx else today }}">
+</label>
+<label class="field">Комментарий
+  <input name="note" maxlength="200" placeholder="необязательно" value="{{ tx.note if tx else '' }}">
+</label>
+<script>
+  // подсказки категорий меняются вместе с типом операции
+  (function (form) {
+    const input = form.querySelector('[data-cat-input]');
+    form.querySelectorAll('input[name=kind]').forEach(r =>
+      r.addEventListener('change', () => input.setAttribute('list', 'cats-' + r.value)));
+  })(document.currentScript.closest('form'));
+</script>
